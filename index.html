@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Market 3D Visualization</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="info">
+        Stock Market Visualization<br/>
+        (Using Alpaca API Data - simplified)
+        <p style="font-size: 0.8em; color: #ffcc00;">Warning: API key included directly in frontend code for demonstration purposes only. This is insecure. Revoke the key and use a backend proxy in a real application.</p>
+    </div>
+    <div id="loading">Loading Assets...</div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
