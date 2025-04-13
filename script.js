@@ -5,13 +5,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // WARNING: Storing API keys directly in frontend code is highly insecure.
 // This is for demonstration purposes ONLY. In a real application, use a backend proxy.
 // PLEASE REVOKE THIS KEY AND GENERATE A NEW ONE AFTER THIS SESSION.
-const ALPACA_API_KEY = 'AKGX886CW4IIHC3Q30OI';
+const ALPACA_API_KEY = 'AKK5VIWTC4QEEU8Y0FSA';
 // NOTE: Alpaca requires a Secret Key as well for authentication, typically passed in headers.
 // The basic '/v2/assets' endpoint might work with just the Key-ID in some contexts,
 // but proper authentication usually requires both Key ID and Secret Key.
 // We'll try without the secret first, but it might fail.
 // A backend proxy is the correct way to handle authentication securely.
-const ALPACA_API_SECRET = 'YOUR_ALPACA_SECRET_KEY_HERE'; // Replace if needed, otherwise remove header line below
+const ALPACA_API_SECRET = 'dgKXu2uwmmzbPNDhqgv4H7hhl8QNAmNbqZuea0KE'; // Replace if needed, otherwise remove header line below
 const ALPACA_API_ENDPOINT = 'https://paper-api.alpaca.markets'; // Using paper trading endpoint
 
 const MAX_INDUSTRIES = 11; // Limit for performance/clarity
