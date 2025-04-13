@@ -98,8 +98,9 @@ async function loadDataAndVisualize() {
             'APCA-API-SECRET-KEY': ALPACA_API_SECRET // Now including the secret key
         };
 
-        // Putting attributes=industry,sector back
-        const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/assets?status=active&asset_class=us_equity&attributes=industry,sector`, {
+        // --- Most Basic Request: Removing ALL query parameters for debugging ---
+        console.log("Attempting most basic asset fetch (no filters)...");
+        const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/assets`, {
             method: 'GET',
             headers: headers
         });
@@ -121,19 +122,19 @@ async function loadDataAndVisualize() {
              throw new Error("Alpaca API returned 0 assets. Check API key, endpoint (paper/live), or asset filters.");
         }
 
-        // Filter and group assets
+        // Filter and group assets (adjusting for lack of specific attributes/filters)
         const industriesData = {};
         let industryCount = 0;
 
         for (const asset of assets) {
-            // Skip assets without industry/sector or non-tradable
-            if (!asset.tradable || (!asset.industry && !asset.sector)) continue; // Restore original filter
+            // Apply basic filtering here if needed, e.g., only tradable US equities
+             if (!asset.tradable || asset.asset_class !== 'us_equity') continue;
 
-            // Restore grouping by industry/sector
-            const industryName = asset.industry || asset.sector; // Prefer industry, fallback to sector
+            // Group by exchange or just 'Other' since industry/sector aren't requested
+            const industryName = asset.exchange || 'Other';
 
             if (!industriesData[industryName]) {
-                 if (industryCount >= MAX_INDUSTRIES) continue; // Limit industries
+                 if (industryCount >= MAX_INDUSTRIES) continue; // Limit groups
                  industriesData[industryName] = [];
                  industryCount++;
             }
