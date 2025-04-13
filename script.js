@@ -4,15 +4,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // --- Configuration ---
 // WARNING: Storing API keys directly in frontend code is highly insecure.
 // This is for demonstration purposes ONLY. In a real application, use a backend proxy.
-// PLEASE REVOKE THIS KEY AND GENERATE A NEW ONE AFTER THIS SESSION.
+// PLEASE REVOKE THIS KEY PAIR AND GENERATE A NEW ONE AFTER THIS SESSION.
 const ALPACA_API_KEY = 'AKK5VIWTC4QEEU8Y0FSA';
 // NOTE: Alpaca requires a Secret Key as well for authentication, typically passed in headers.
 // The basic '/v2/assets' endpoint might work with just the Key-ID in some contexts,
 // but proper authentication usually requires both Key ID and Secret Key.
-// We'll try without the secret first, but it might fail.
 // A backend proxy is the correct way to handle authentication securely.
 const ALPACA_API_SECRET = 'dgKXu2uwmmzbPNDhqgv4H7hhl8QNAmNbqZuea0KE'; // Replace if needed, otherwise remove header line below
-const ALPACA_API_ENDPOINT = 'https://paper-api.alpaca.markets'; // Using paper trading endpoint
+const ALPACA_API_ENDPOINT = 'https://api.alpaca.markets'; // Using paper trading endpoint
 
 const MAX_INDUSTRIES = 11; // Limit for performance/clarity
 const MAX_STOCKS_PER_INDUSTRY = 15; // Limit for performance/clarity
@@ -79,12 +78,10 @@ async function loadDataAndVisualize() {
 
     try {
         console.log('Fetching assets from Alpaca...');
-        // Note: Proper Alpaca authentication usually requires BOTH key and secret in headers.
-        // This fetch might fail or return limited data without the secret key header.
+        // Note: Proper Alpaca authentication requires BOTH key and secret in headers.
         const headers = {
-            'APCA-API-KEY-ID': ALPACA_API_KEY
-            // Uncomment the line below ONLY if you have replaced 'YOUR_ALPACA_SECRET_KEY_HERE' above
-            // , 'APCA-API-SECRET-KEY': ALPACA_API_SECRET
+            'APCA-API-KEY-ID': ALPACA_API_KEY,
+            'APCA-API-SECRET-KEY': ALPACA_API_SECRET // Now including the secret key
         };
 
         const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/assets?status=active&asset_class=us_equity&attributes=industry,sector`, {
