@@ -11,7 +11,8 @@ const ALPACA_API_KEY = 'AKK5VIWTC4QEEU8Y0FSA';
 // but proper authentication usually requires both Key ID and Secret Key.
 // A backend proxy is the correct way to handle authentication securely.
 const ALPACA_API_SECRET = 'dgKXu2uwmmzbPNDhqgv4H7hhl8QNAmNbqZuea0KE'; // Replace if needed, otherwise remove header line below
-const ALPACA_API_ENDPOINT = 'https://api.alpaca.markets'; // Using LIVE trading endpoint
+const ALPACA_API_ENDPOINT = 'https://api.alpaca.markets'; // Endpoint for Trading API (assets, account, etc.)
+const ALPACA_DATA_ENDPOINT = 'https://data.alpaca.markets'; // Endpoint for Market Data API (snapshots, bars, etc.)
 
 const MAX_INDUSTRIES = 11; // Limit for performance/clarity
 const MAX_STOCKS_PER_INDUSTRY = 15; // Limit for performance/clarity
@@ -88,24 +89,25 @@ function init() {
 // --- Data Fetching and Processing ---
 async function loadDataAndVisualize() {
     const loadingElement = document.getElementById('loading');
-    loadingElement.textContent = 'Testing Account Endpoint...'; // Update loading text
+    // loadingElement.textContent = 'Testing Account Endpoint...'; // Restore original text implicitly
     loadingElement.style.display = 'block';
 
     try {
-        console.log('Testing /v2/account endpoint...');
+        console.log('Fetching assets from Alpaca...'); // Restore log message
         // Note: Proper Alpaca authentication requires BOTH key and secret in headers.
         const headers = {
             'APCA-API-KEY-ID': ALPACA_API_KEY,
             'APCA-API-SECRET-KEY': ALPACA_API_SECRET // Now including the secret key
         };
 
-        // --- Testing Account Endpoint ---
-        const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/account`, {
+        // Try fetching /v2/assets from the DATA endpoint as requested
+        console.log(`Attempting to fetch /v2/assets from ${ALPACA_DATA_ENDPOINT}...`);
+        const response = await fetch(`${ALPACA_DATA_ENDPOINT}/v2/assets?status=active&asset_class=us_equity&attributes=industry,sector`, {
             method: 'GET',
             headers: headers
         });
 
-        console.log(`Account endpoint response status: ${response.status}`);
+        // console.log(`Account endpoint response status: ${response.status}`); // Remove test log
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -115,27 +117,18 @@ async function loadDataAndVisualize() {
                 const errorJson = JSON.parse(errorText);
                 detail = errorJson.message || errorText;
             } catch (e) { /* Ignore parsing error */ }
-            throw new Error(`Alpaca Account API Error: ${response.status} ${response.statusText} - ${detail}`);
+            // Restore original error message format
+            throw new Error(`Alpaca API Error: ${response.status} ${response.statusText} - ${detail}`);
         }
 
-        const accountInfo = await response.json();
-        console.log('Successfully fetched /v2/account info:', accountInfo);
-        loadingElement.textContent = 'Account fetch successful. Asset fetch still problematic. See console.';
-        // If we reach here, authentication works, but asset fetching doesn't.
-        // The issue is likely data permissions or filters.
-
-        // --- Temporarily disable asset processing and visualization ---
-        console.log("Skipping asset processing and visualization for this test.");
-        loadingElement.style.display = 'none'; // Hide loading after test
-        return; // Stop further execution for this test
-
-        /* --- Original asset processing code (disabled for now) ---
-        const assets = await response.json(); // This line would be for the /v2/assets call
+        // Restore asset processing
+        const assets = await response.json();
         console.log(`Fetched ${assets.length} assets.`);
         if (assets.length === 0) {
              throw new Error("Alpaca API returned 0 assets. Check API key, endpoint (paper/live), or asset filters.");
         }
 
+        // Restore original grouping logic
         const industriesData = {};
         let industryCount = 0;
 
@@ -163,8 +156,8 @@ async function loadDataAndVisualize() {
             // Potentially add fallback logic here if needed
         }
 
-        // --- Fetch Snapshots for a subset --- // DISABLED FOR TEST
-        console.log('Fetching snapshots for a subset of stocks...'); // DISABLED FOR TEST
+        // --- Fetch Snapshots for a subset --- // Re-enable snapshot fetching
+        console.log('Fetching snapshots for a subset of stocks...');
         const snapshotPromises = [];
         const symbolsWithSnapshots = new Set(); // Track symbols we are fetching
 
@@ -176,11 +169,14 @@ async function loadDataAndVisualize() {
                 if (!asset.symbol || symbolsWithSnapshots.has(asset.symbol)) continue; // Skip if no symbol or already fetching
 
                 symbolsWithSnapshots.add(asset.symbol);
+                // Use the dedicated data endpoint for snapshots
                 snapshotPromises.push(
-                    fetch(`${ALPACA_API_ENDPOINT}/v2/stocks/${asset.symbol}/snapshot`, { headers })
+                    fetch(`${ALPACA_DATA_ENDPOINT}/v2/stocks/${asset.symbol}/snapshot`, { headers })
                         .then(res => {
                             if (!res.ok) {
-                                console.warn(`Snapshot fetch failed for ${asset.symbol}: ${res.status}`);
+                                // Log specific error for snapshot failure
+                                const statusText = `${res.status} ${res.statusText}`;
+                                console.warn(`Snapshot fetch failed for ${asset.symbol} from ${ALPACA_DATA_ENDPOINT}: ${statusText}`);
                                 return null; // Don't throw, just return null for this one
                             }
                             return res.json();
@@ -202,14 +198,14 @@ async function loadDataAndVisualize() {
                 snapshotsMap.set(result.symbol, result.snapshot);
             }
         });
-        console.log(`Fetched ${snapshotsMap.size} snapshots successfully.`); // DISABLED FOR TEST
+        console.log(`Fetched ${snapshotsMap.size} snapshots successfully.`);
 
-        // --- Create Visuals --- // DISABLED FOR TEST
-        createVisuals(industriesData, snapshotsMap); // DISABLED FOR TEST
-        */ // --- End of disabled original code ---
+        // --- Create Visuals --- // Re-enable visual creation
+        createVisuals(industriesData, snapshotsMap);
 
     } catch (error) {
-        console.error('Failed test API call:', error);
+        // Restore original error logging
+        console.error('Failed to load or process data:', error);
         loadingElement.textContent = `Error: ${error.message}. Check console & API Key/Secret.`;
         loadingElement.style.color = 'red';
         // Keep loading indicator visible on error
