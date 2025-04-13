@@ -17,14 +17,26 @@ const MAX_INDUSTRIES = 11; // Limit for performance/clarity
 const MAX_STOCKS_PER_INDUSTRY = 15; // Limit for performance/clarity
 const INDUSTRY_SPACING = 150;
 const STOCK_SPACING = 15; // Increased spacing slightly
-const NODE_SIZE_DEFAULT = 2;
-const BEAM_LENGTH = 25; // Increased length
-const BEAM_RADIUS = 0.5;
+const NODE_SIZE_DEFAULT = 1.5; // Slightly smaller default
+const NODE_SIZE_MIN = 1;
+const NODE_SIZE_MAX = 10; // Max size based on volume proxy
+const VOLUME_SCALE_FACTOR = 0.000001; // Adjust this to scale volume to node size reasonably
+const SPOTLIGHT_DISTANCE = 30; // How far the spotlight is from the node
+const SPOTLIGHT_ANGLE = Math.PI / 6; // Cone angle of the spotlight
+const SPOTLIGHT_INTENSITY_DEFAULT = 0.8;
+const SPOTLIGHT_INTENSITY_MIN = 0.2;
+const SPOTLIGHT_INTENSITY_MAX = 2.5;
+const VOLUME_INTENSITY_SCALE_FACTOR = 0.0000005; // Adjust to scale volume to intensity
+const MAX_SNAPSHOTS_PER_INDUSTRY = 5; // Limit snapshot calls per industry
 
 // --- Globals ---
 let scene, camera, renderer, controls;
-const industryGroups = {}; // Store industry data { industryName: { group: THREE.Group, stocks: [] } }
+const industryGroups = {}; // Store industry data { industryName: { group: THREE.Group, stocks: [], stockData: Map<symbol, {asset, node, light, snapshot?}> } }
 const mainContainer = new THREE.Group(); // Container for all visuals
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let intersectedObject = null;
+const infoDiv = document.getElementById('info'); // Get info div reference
 
 // --- Initialization ---
 function init() {
@@ -66,6 +78,8 @@ function init() {
 
     // Handle window resize
     window.addEventListener('resize', onWindowResize, false);
+    // Handle mouse move for hover effects
+    window.addEventListener('mousemove', onMouseMove, false);
 
     // Start animation loop
     animate();
@@ -84,8 +98,8 @@ async function loadDataAndVisualize() {
             'APCA-API-SECRET-KEY': ALPACA_API_SECRET // Now including the secret key
         };
 
-        // Temporarily removing attributes=industry,sector for debugging the API call
-        const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/assets?status=active&asset_class=us_equity`, {
+        // Putting attributes=industry,sector back
+        const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/assets?status=active&asset_class=us_equity&attributes=industry,sector`, {
             method: 'GET',
             headers: headers
         });
@@ -107,21 +121,19 @@ async function loadDataAndVisualize() {
              throw new Error("Alpaca API returned 0 assets. Check API key, endpoint (paper/live), or asset filters.");
         }
 
-        // Filter and group assets - THIS WILL LIKELY FAIL NOW as industry/sector are not requested
+        // Filter and group assets
         const industriesData = {};
         let industryCount = 0;
 
         for (const asset of assets) {
             // Skip assets without industry/sector or non-tradable
-            // We won't have industry/sector info now, so this grouping logic needs adjustment later
-            // For now, let's just see if assets are fetched.
-            // if (!asset.tradable || (!asset.industry && !asset.sector)) continue; // Commenting out for now
+            if (!asset.tradable || (!asset.industry && !asset.sector)) continue; // Restore original filter
 
-            // Temporary grouping by 'exchange' or just putting all in 'Other' for testing
-            const industryName = asset.exchange || 'Other'; // Use exchange as a temporary grouping
+            // Restore grouping by industry/sector
+            const industryName = asset.industry || asset.sector; // Prefer industry, fallback to sector
 
             if (!industriesData[industryName]) {
-                 if (industryCount >= MAX_INDUSTRIES) continue; // Limit groups
+                 if (industryCount >= MAX_INDUSTRIES) continue; // Limit industries
                  industriesData[industryName] = [];
                  industryCount++;
             }
@@ -136,7 +148,50 @@ async function loadDataAndVisualize() {
             console.warn("No industries found after filtering. Displaying raw assets if any.");
             // Potentially add fallback logic here if needed
         }
-        createVisuals(industriesData);
+
+        // --- Fetch Snapshots for a subset ---
+        console.log('Fetching snapshots for a subset of stocks...');
+        const snapshotPromises = [];
+        const symbolsWithSnapshots = new Set(); // Track symbols we are fetching
+
+        for (const industryName in industriesData) {
+            const assetsInIndustry = industriesData[industryName];
+            let snapshotsFetched = 0;
+            for (const asset of assetsInIndustry) {
+                if (snapshotsFetched >= MAX_SNAPSHOTS_PER_INDUSTRY) break;
+                if (!asset.symbol || symbolsWithSnapshots.has(asset.symbol)) continue; // Skip if no symbol or already fetching
+
+                symbolsWithSnapshots.add(asset.symbol);
+                snapshotPromises.push(
+                    fetch(`${ALPACA_API_ENDPOINT}/v2/stocks/${asset.symbol}/snapshot`, { headers })
+                        .then(res => {
+                            if (!res.ok) {
+                                console.warn(`Snapshot fetch failed for ${asset.symbol}: ${res.status}`);
+                                return null; // Don't throw, just return null for this one
+                            }
+                            return res.json();
+                        })
+                        .then(snapshot => ({ symbol: asset.symbol, snapshot })) // Include symbol with result
+                        .catch(err => {
+                            console.warn(`Snapshot fetch error for ${asset.symbol}:`, err);
+                            return null;
+                        })
+                );
+                snapshotsFetched++;
+            }
+        }
+
+        const snapshotResults = await Promise.all(snapshotPromises);
+        const snapshotsMap = new Map();
+        snapshotResults.forEach(result => {
+            if (result && result.snapshot) {
+                snapshotsMap.set(result.symbol, result.snapshot);
+            }
+        });
+        console.log(`Fetched ${snapshotsMap.size} snapshots successfully.`);
+
+        // --- Create Visuals ---
+        createVisuals(industriesData, snapshotsMap);
 
     } catch (error) {
         console.error('Failed to load or process data:', error);
@@ -151,9 +206,11 @@ async function loadDataAndVisualize() {
 
 
 // --- Visualization Creation ---
-function createVisuals(industriesData) {
+function createVisuals(industriesData, snapshotsMap) {
     const industryNames = Object.keys(industriesData);
     const numIndustries = industryNames.length;
+    const gotIndustryData = industryNames.length > 0 && industryNames[0] !== 'Other'; // Simple check if we likely got real industry data
+
     if (numIndustries === 0) {
         console.warn("No industries to visualize.");
         return;
@@ -171,85 +228,198 @@ function createVisuals(industriesData) {
         industryGroup.position.set(x, 0, z); // Position industry center at y=0
 
         // Store for later reference
-        industryGroups[industryName] = { group: industryGroup, stocks: [] };
+        industryGroups[industryName] = { group: industryGroup, stocks: [], stockData: new Map() };
 
         // Create stock nodes within this industry
         const numStocks = industryAssets.length;
         const stocksPerRow = Math.ceil(Math.sqrt(numStocks)); // Arrange in a rough square grid
+        const stockNodes = []; // Keep track of nodes in this group for linking
 
         industryAssets.forEach((asset, stockIndex) => {
-            const stockNode = createStockNode(asset);
-            const beam = createBeam(asset); // Placeholder beam
+            const snapshot = snapshotsMap.get(asset.symbol);
+            const nodeSize = calculateNodeSize(snapshot);
+            const stockNode = createStockNode(asset, nodeSize);
+            const light = createSpotlight(asset, snapshot); // Use spotlight instead of beam
 
             // Position stocks in a grid within the industry group's XY plane
             const row = Math.floor(stockIndex / stocksPerRow);
             const col = stockIndex % stocksPerRow;
             const stockX = (col - (stocksPerRow - 1) / 2) * STOCK_SPACING;
-            const stockY = (row - (Math.ceil(numStocks / stocksPerRow) -1) / 2) * STOCK_SPACING; // Center grid vertically
+            const stockY = (row - (Math.ceil(numStocks / stocksPerRow) - 1) / 2) * STOCK_SPACING; // Center grid vertically
 
             stockNode.position.set(stockX, stockY, 0); // Position relative to industry center
-            beam.position.copy(stockNode.position); // Beam originates from node center
 
-            // Point beam towards industry center (local 0,0,0)
-            const direction = new THREE.Vector3(0, 0, 0).sub(stockNode.position).normalize();
-            const quaternion = new THREE.Quaternion();
-            // Cone points along +Y by default after translation, so align Y-axis with direction
-            quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-            beam.setRotationFromQuaternion(quaternion);
-            // Adjust position slightly so cone base is at node center
-            beam.position.addScaledVector(direction, -BEAM_LENGTH / 2); // Move back along direction
-
+            // Position spotlight away from the node, pointing at it
+            const lightPosition = stockNode.position.clone().add(new THREE.Vector3(0, 0, SPOTLIGHT_DISTANCE)); // Position behind the node
+            light.position.copy(lightPosition);
+            light.target = stockNode; // Make the light point at the node
 
             industryGroup.add(stockNode);
-            industryGroup.add(beam);
-            industryGroups[industryName].stocks.push({ asset, node: stockNode, beam });
+            industryGroup.add(light);
+            industryGroup.add(light.target); // Target needs to be added to the scene graph
+
+            // Store references
+            const stockInfo = { asset, node: stockNode, light, snapshot };
+            industryGroups[industryName].stocks.push(stockInfo);
+            industryGroups[industryName].stockData.set(asset.symbol, stockInfo);
+            stockNodes.push(stockNode); // Add to list for linking
         });
+
+        // Add links between nodes in the same industry (if we have industry data)
+        if (gotIndustryData && stockNodes.length > 1) {
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.3 });
+            for (let i = 0; i < stockNodes.length; i++) {
+                for (let j = i + 1; j < stockNodes.length; j++) {
+                    const points = [stockNodes[i].position, stockNodes[j].position];
+                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    const line = new THREE.Line(geometry, lineMaterial);
+                    industryGroup.add(line);
+                }
+            }
+        }
 
         mainContainer.add(industryGroup);
 
         // Optional: Add label for industry (requires CSS2DRenderer or similar)
-        // createIndustryLabel(industryName, industryGroup.position);
+        // createIndustryLabel(industryName, industryGroup.position); // Requires CSS2DRenderer setup
     });
 
     console.log('Visualization created.');
 }
 
-function createStockNode(asset) {
-    // Placeholder size for now
-    const geometry = new THREE.SphereGeometry(NODE_SIZE_DEFAULT, 16, 16);
+function calculateNodeSize(snapshot) {
+    if (!snapshot || !snapshot.dailyBar || !snapshot.dailyBar.v) {
+        return NODE_SIZE_DEFAULT;
+    }
+    // Scale volume to node size
+    const size = NODE_SIZE_MIN + snapshot.dailyBar.v * VOLUME_SCALE_FACTOR;
+    return Math.min(size, NODE_SIZE_MAX); // Clamp size
+}
+
+function createStockNode(asset, size) {
+    const geometry = new THREE.SphereGeometry(size, 16, 16);
     const material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(Math.random() * 0xffffff), // Random color per stock
-        metalness: 0.3,
-        roughness: 0.6
+        color: new THREE.Color(Math.random() * 0xffffff), // Keep random color for now
+        metalness: 0.4,
+        roughness: 0.5
     });
     const sphere = new THREE.Mesh(geometry, material);
-    sphere.userData = asset; // Store asset data for potential interaction later
+    sphere.userData = { type: 'stockNode', asset: asset }; // Add type for raycasting
     return sphere;
 }
 
-function createBeam(asset) {
-    // Placeholder beam - random color for now
-    const isOutflow = Math.random() > 0.5; // Random flow direction
-    const beamColor = isOutflow ? 0xff4444 : 0xffff66; // Adjusted Red/Yellow
+function createSpotlight(asset, snapshot) {
+    let color = 0xaaaaaa; // Default color (greyish)
+    let intensity = SPOTLIGHT_INTENSITY_DEFAULT;
 
-    const geometry = new THREE.ConeGeometry(BEAM_RADIUS, BEAM_LENGTH, 8);
-    // Translate the geometry so the base is at the origin (0,0,0)
-    geometry.translate(0, BEAM_LENGTH / 2, 0); // Cone points towards positive Y by default
+    if (snapshot && snapshot.todaysChangePerc !== undefined && snapshot.dailyBar && snapshot.dailyBar.v !== undefined) {
+        // Color based on price change
+        color = snapshot.todaysChangePerc >= 0 ? 0x66ff66 : 0xff6666; // Green for up/flat, Red for down
 
-    const material = new THREE.MeshBasicMaterial({ color: beamColor }); // Use MeshBasicMaterial for bright beams
-    const cone = new THREE.Mesh(geometry, material);
-    cone.userData = { isOutflow }; // Store flow direction if needed later
-    return cone;
+        // Intensity based on volume
+        intensity = SPOTLIGHT_INTENSITY_MIN + snapshot.dailyBar.v * VOLUME_INTENSITY_SCALE_FACTOR;
+        intensity = Math.min(intensity, SPOTLIGHT_INTENSITY_MAX); // Clamp intensity
+    }
+
+    const spotLight = new THREE.SpotLight(color, intensity);
+    spotLight.angle = SPOTLIGHT_ANGLE;
+    spotLight.penumbra = 0.3; // Softer edge
+    spotLight.decay = 2; // Realistic falloff
+    // spotLight.castShadow = true; // Optional: enable shadows if needed (performance cost)
+
+    return spotLight;
 }
+
 
 // --- Animation Loop ---
 function animate() {
     requestAnimationFrame(animate);
     controls.update(); // Only required if controls.enableDamping or autoRotate are set to true
+
+    // Hover effect logic moved to onMouseMove to avoid running every frame
+    // findIntersections(); // Call hover check
+
     renderer.render(scene, camera);
 }
 
 // --- Event Handlers ---
+function onMouseMove(event) {
+    // Calculate mouse position in normalized device coordinates (-1 to +1)
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+    findIntersections(); // Check for intersections when mouse moves
+}
+
+function findIntersections() {
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(mainContainer.children, true); // Check recursively
+
+    let currentIntersectedSymbol = null;
+
+    if (intersects.length > 0) {
+        let intersectedNode = null;
+        // Find the first intersected object that is a stock node
+        for (const intersect of intersects) {
+            if (intersect.object.userData && intersect.object.userData.type === 'stockNode') {
+                intersectedNode = intersect.object;
+                break;
+            }
+        }
+
+        if (intersectedNode) {
+            currentIntersectedSymbol = intersectedNode.userData.asset.symbol;
+            if (intersectedObject !== intersectedNode) {
+                // Clear previous highlight if any (optional)
+                // if (intersectedObject) intersectedObject.material.emissive.setHex(0x000000);
+
+                intersectedObject = intersectedNode;
+                // Add highlight (optional)
+                // intersectedObject.material.emissive.setHex(0x555555);
+
+                // Update info div
+                const asset = intersectedObject.userData.asset;
+                let infoText = `Symbol: ${asset.symbol}<br>Name: ${asset.name || 'N/A'}`;
+                // Find the corresponding stock data including snapshot
+                let snapshotData = null;
+                for(const industryName in industryGroups) {
+                    const data = industryGroups[industryName].stockData.get(asset.symbol);
+                    if (data && data.snapshot) {
+                        snapshotData = data.snapshot;
+                        break;
+                    }
+                }
+
+                if (snapshotData) {
+                    infoText += `<br>Last Price: ${snapshotData.latestTrade?.p || 'N/A'}`;
+                    infoText += `<br>Day Change: ${snapshotData.todaysChangePerc?.toFixed(2) || 'N/A'}%`;
+                    infoText += `<br>Volume: ${snapshotData.dailyBar?.v || 'N/A'}`;
+                } else {
+                     infoText += `<br>(Snapshot data not loaded for this stock)`;
+                }
+                 infoDiv.innerHTML = infoText;
+                 infoDiv.style.display = 'block'; // Show info div
+            }
+        } else {
+             // Mouse is not over a known stock node
+             clearIntersection();
+        }
+    } else {
+        // Mouse is not over any object in the main container
+        clearIntersection();
+    }
+}
+
+function clearIntersection() {
+     if (intersectedObject) {
+        // Clear highlight (optional)
+        // intersectedObject.material.emissive.setHex(0x000000);
+        infoDiv.style.display = 'none'; // Hide info div
+    }
+    intersectedObject = null;
+}
+
+
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
