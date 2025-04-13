@@ -11,7 +11,7 @@ const ALPACA_API_KEY = 'AKK5VIWTC4QEEU8Y0FSA';
 // but proper authentication usually requires both Key ID and Secret Key.
 // A backend proxy is the correct way to handle authentication securely.
 const ALPACA_API_SECRET = 'dgKXu2uwmmzbPNDhqgv4H7hhl8QNAmNbqZuea0KE'; // Replace if needed, otherwise remove header line below
-const ALPACA_API_ENDPOINT = 'https://api.alpaca.markets'; // Using paper trading endpoint
+const ALPACA_API_ENDPOINT = 'https://api.alpaca.markets'; // Using LIVE trading endpoint
 
 const MAX_INDUSTRIES = 11; // Limit for performance/clarity
 const MAX_STOCKS_PER_INDUSTRY = 15; // Limit for performance/clarity
