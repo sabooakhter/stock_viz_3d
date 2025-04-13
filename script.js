@@ -100,9 +100,9 @@ async function loadDataAndVisualize() {
             'APCA-API-SECRET-KEY': ALPACA_API_SECRET // Now including the secret key
         };
 
-        // Try fetching /v2/assets from the DATA endpoint as requested
-        console.log(`Attempting to fetch /v2/assets from ${ALPACA_DATA_ENDPOINT}...`);
-        const response = await fetch(`${ALPACA_DATA_ENDPOINT}/v2/assets?status=active&asset_class=us_equity&attributes=industry,sector`, {
+        // Reverting /v2/assets fetch to the correct TRADING API endpoint
+        console.log(`Fetching /v2/assets from ${ALPACA_API_ENDPOINT}...`);
+        const response = await fetch(`${ALPACA_API_ENDPOINT}/v2/assets?status=active&asset_class=us_equity&attributes=industry,sector`, {
             method: 'GET',
             headers: headers
         });
